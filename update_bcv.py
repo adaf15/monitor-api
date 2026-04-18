@@ -1,0 +1,36 @@
+name: Actualizar Tasa BCV Diaria
+
+on:
+  schedule:
+    # Se ejecuta de Lunes a Viernes a las 21:30 UTC (5:30 PM en Venezuela)
+    - cron: '30 21 * * 1-5'
+  workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub usando un botón
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Permiso necesario para guardar los cambios en tu repositorio
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Instalar dependencias
+        run: |
+          pip install requests beautifulsoup4 urllib3
+
+      - name: Ejecutar script de actualización
+        run: python update_bcv.py
+
+      - name: Guardar cambios (Commit y Push)
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add datos_bcv.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-actualización BCV $(date +'%d/%m/%Y')" && git push)
