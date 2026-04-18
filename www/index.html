@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chambea - Monitor BCV Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <style>
+        :root {
+            --primary: #0056b3;
+            --secondary: #28a745;
+            --bg: #f4f7f6;
+            --text: #333333;
+            --card: #ffffff;
+        }
+
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; transition: 0.3s; }
+        .container { max-width: 1000px; margin: 0 auto; }
+
+        .header-app { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+
+        .config-panel {
+            background: var(--card);
+            padding: 15px; border-radius: 12px;
+            display: flex; gap: 20px; flex-wrap: wrap;
+            margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            border-top: 5px solid var(--primary);
+        }
+
+        .config-group { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: bold; }
+        input[type="color"], select { padding: 5px; border-radius: 5px; border: 1px solid #ddd; }
+        input[type="color"] { width: 40px; height: 40px; cursor: pointer; background: none; border: none; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 20px;}
+        .card { background: var(--card); padding: 20px; border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center;}
+        .price { font-size: 2.5rem; font-weight: 800; color: var(--primary); margin: 5px 0; }
+        
+        .chart-box { background: var(--card); padding: 20px; border-radius: 12px; height: 400px; margin-bottom: 20px; }
+        
+        .table-container { background: var(--card); border-radius: 12px; overflow: hidden; height: 400px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: var(--primary); color: white; padding: 12px; text-align: left; position: sticky; top: 0; }
+        td { padding: 10px; border-bottom: 1px solid #eee; font-size: 14px; }
+
+        .footer-app { text-align: center; margin-top: 30px; font-size: 13px; opacity: 0.8; padding-top: 15px; border-top: 1px solid #ddd; }
+        .footer-app a { color: var(--primary); text-decoration: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header-app">
+        <h1>Monitor BCV <span id="year-title">2025</span></h1>
+        <div class="config-group">
+            <label>Seleccionar Año:</label>
+            <select id="yearSelector" onchange="updateYearData()">
+                <option value="2026" selected>Año 2026</option>
+                <option value="2025">Año 2025</option>
+                <option value="2024">Año 2024</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="config-panel">
+        <div class="config-group"><label>Dólar</label><input type="color" id="pColor" value="#0056b3" oninput="updateTheme()"></div>
+        <div class="config-group"><label>Euro</label><input type="color" id="sColor" value="#28a745" oninput="updateTheme()"></div>
+        <div class="config-group"><label>Fondo</label><input type="color" id="bgColor" value="#f4f7f6" oninput="updateTheme()"></div>
+        <div class="config-group"><label>Texto</label><input type="color" id="tColor" value="#333333" oninput="updateTheme()"></div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <small>TASA USD (VENTA)</small>
+            <div id="usd-val" class="price">--</div>
+            <small id="usd-date">--</small>
+        </div>
+        <div class="card" style="border-top: 4px solid var(--secondary)">
+            <small>TASA EUR (VENTA)</small>
+            <div id="eur-val" class="price" style="color: var(--secondary)">--</div>
+            <small id="eur-date">--</small>
+        </div>
+    </div>
+
+    <div class="chart-box">
+        <canvas id="canvasChart"></canvas>
+    </div>
+
+    <div style="margin-bottom: 15px;">
+        <input type="text" id="searchInput" placeholder="🔍 Buscar por fecha (Ej: 25/11/2025)..." onkeyup="filterDate()" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ddd; outline: none; box-sizing: border-box; font-size: 14px; font-family: inherit; background: var(--card); color: var(--text);">
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Fecha</th><th>Dólar (Bs)</th><th>Euro (Bs)</th></tr></thead>
+            <tbody id="table-body"></tbody>
+        </table>
+    </div>
+
+    <div class="footer-app">
+        Desarrollada por <strong>DIGITAL WORLD GROUP AN</strong><br>
+        <a href="mailto:diwogran@gmail.com">diwogran@gmail.com</a>
+    </div>
+</div>
+
+<script>
+    let DATA_MASTER = {};
+    let myChart;
+
+    async function cargarDatosAutomaticos() {
+        // URL pública de tu repositorio en GitHub
+        const url = "https://raw.githubusercontent.com/adaf15/monitor-api/main/datos_bcv.json";
+        
+        try {
+            // Usamos un parámetro 'cache-buster' para evitar que el navegador use una versión antigua del archivo
+            const respuesta = await fetch(`${url}?t=${new Date().getTime()}`);
+            if (respuesta.ok) {
+                DATA_MASTER = await respuesta.json();
+                console.log("Datos en vivo cargados exitosamente.");
+            } else {
+                throw new Error(`Error al cargar: ${respuesta.statusText}`);
+            }
+        } catch (error) {
+            console.error("No se pudo cargar la data en vivo. La aplicación puede no funcionar correctamente.", error);
+            alert("Error al cargar los datos actualizados. Por favor, revisa tu conexión a internet e intenta recargar la página.");
+        }
+    }
+
+    function updateTheme() {
+        const root = document.documentElement;
+        root.style.setProperty('--primary', document.getElementById('pColor').value);
+        root.style.setProperty('--secondary', document.getElementById('sColor').value);
+        root.style.setProperty('--bg', document.getElementById('bgColor').value);
+        root.style.setProperty('--text', document.getElementById('tColor').value);
+        if(myChart) renderChart();
+    }
+
+    function updateYearData() {
+        const year = document.getElementById('yearSelector').value;
+        
+        if (!DATA_MASTER[year] || DATA_MASTER[year].length === 0) {
+            console.error(`No hay datos disponibles para el año ${year}.`);
+            return;
+        }
+
+        const currentData = DATA_MASTER[year];
+        document.getElementById('year-title').innerText = "Anual " + year;
+
+        // Actualizar Tarjetas
+        const last = currentData[0];
+        document.getElementById('usd-val').innerText = last.u.toFixed(2);
+        document.getElementById('eur-val').innerText = last.e.toFixed(2);
+        document.getElementById('usd-date').innerText = last.d;
+        document.getElementById('eur-date').innerText = last.d;
+
+        // Actualizar Tabla
+        const tbody = document.getElementById('table-body');
+        tbody.innerHTML = currentData.map(r => `
+            <tr>
+                <td>${r.d}</td>
+                <td style="font-weight:bold; color:var(--primary)">${r.u.toFixed(4)}</td>
+                <td style="color:var(--secondary)">${r.e.toFixed(4)}</td>
+            </tr>
+        `).join('');
+
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) searchInput.value = '';
+
+        renderChart();
+    }
+
+    function renderChart() {
+        const ctx = document.getElementById('canvasChart').getContext('2d');
+        if(myChart) myChart.destroy();
+        
+        const year = document.getElementById('yearSelector').value;
+        const chartData = [...DATA_MASTER[year]].reverse();
+        
+        const pColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+        const sColor = getComputedStyle(document.documentElement).getPropertyValue('--secondary').trim();
+        const tColor = getComputedStyle(document.documentElement).getPropertyValue('--text').trim();
+
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartData.map(r => r.d),
+                datasets: [
+                    {
+                        label: 'Dólar (USD)',
+                        data: chartData.map(r => r.u),
+                        borderColor: pColor,
+                        backgroundColor: pColor + '15',
+                        fill: true, tension: 0.3, pointRadius: 2
+                    },
+                    {
+                        label: 'Euro (EUR)',
+                        data: chartData.map(r => r.e),
+                        borderColor: sColor,
+                        fill: false, tension: 0.3, pointRadius: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: tColor } } },
+                scales: {
+                    x: { ticks: { color: tColor, maxTicksLimit: 10 } },
+                    y: { ticks: { color: tColor } }
+                }
+            }
+        });
+    }
+
+    function filterDate() {
+        const searchValue = document.getElementById('searchInput').value.trim();
+        const rows = document.querySelectorAll('#table-body tr');
+        
+        rows.forEach(row => {
+            const dateCell = row.cells[0].textContent;
+            if (dateCell.includes(searchValue)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+
+    window.onload = async function() {
+        const currentYear = new Date().getFullYear();
+        document.title = `Chambea - Monitor BCV Pro (2024-${currentYear})`;
+        
+        // Carga los datos más recientes desde el repositorio
+        await cargarDatosAutomaticos();
+        
+        // Inicializa la vista con los datos cargados
+        updateYearData();
+    };
+</script>
+</body>
+</html>
